@@ -65,6 +65,7 @@ typedef NSUInteger GBProcessingFlag;
 
 - (BOOL)processWarningBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
 - (BOOL)processBugBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
+- (BOOL)processDeprecatedBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
 - (BOOL)processParamBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
 - (BOOL)processExceptionBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
 - (BOOL)processReturnBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange;
@@ -205,6 +206,7 @@ typedef NSUInteger GBProcessingFlag;
 		if ([self processNoteBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
 		if ([self processWarningBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
 		if ([self processBugBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
+		if ([self processDeprecatedBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
 		if ([self processParamBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
 		if ([self processExceptionBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
 		if ([self processReturnBlockInString:string lines:lines blockRange:blockRange shortRange:shortRange]) return;
@@ -230,11 +232,10 @@ typedef NSUInteger GBProcessingFlag;
 	NSString *blockString = [self stringByCombiningTrimmedLines:blockLines];
 	if ([blockString length] == 0) return;
 	
-	// Process the string and register long description component. If discussion is already registered (i.e. from @discussion directive), ignore it.
-	if (self.currentComment.longDescription.components.count == 0) {
-		GBCommentComponent *component = [self commentComponentByPreprocessingString:blockString withFlags:0];
-		[self.currentComment.longDescription registerComponent:component];
-	}
+	// Process the string and register long description component.
+	// **IMPORTANT CONTRIBUTORS NOTE:** do NOT comment or change following two lines. Doing so will brake overview section being created for classes, categories and protocols! Most often this happens with folks wanting to bring in better HeaderDoc support, but it brakes "standard" appledoc way of dealing comments. While I symphatize with ideas of supporting as wide audience as possible, native appledoc users are still larger audience than HeaderDoc, so please find another way. My suggestion would be via cmd line switch that would change behavior from appledoc to HeaderDoc, then opt out with an if statement.
+	GBCommentComponent *component = [self commentComponentByPreprocessingString:blockString withFlags:0];
+	[self.currentComment.longDescription registerComponent:component];
 }
 
 - (void)registerShortDescriptionFromLines:(NSArray *)lines range:(NSRange)range removePrefix:(NSString *)remove {
@@ -309,6 +310,24 @@ typedef NSUInteger GBProcessingFlag;
 	component.stringValue = string;
 	component.markdownValue = [self stringByConvertingLinesToBlockquoteFromString:component.markdownValue class:@"warning"];
 	[self.currentComment.longDescription registerComponent:component];
+	return YES;
+}
+
+- (BOOL)processDeprecatedBlockInString:(NSString *)string lines:(NSArray *)lines blockRange:(NSRange)blockRange shortRange:(NSRange)shortRange {
+	NSArray *components = [string captureComponentsMatchedByRegex:self.components.deprecatedSectionRegex];
+	if ([components count] == 0) return NO;
+	
+	// Get data from captures. Index 1 is directive, index 2 description text.
+	NSString *directive = [components objectAtIndex:1];
+	NSString *description = [components objectAtIndex:2];
+	GBLogDebug(@"- Registering DEPRECATED block %@ at %@...", [description normalizedDescription], self.currentSourceInfo);
+	[self registerShortDescriptionFromLines:lines range:shortRange removePrefix:directive];
+	
+	// Convert to markdown and register everything. We always use the whole text for directive.
+	GBCommentComponent *component = [self commentComponentByPreprocessingString:description withFlags:0];
+	component.stringValue = [self.currentComment.shortDescription.stringValue stringByAppendingFormat:@" (%@)", string];
+	component.markdownValue = [self.currentComment.shortDescription.markdownValue stringByAppendingFormat:@" (<b class=\"deprecated\">Deprecated:</b><span class=\"deprecated\"> %@</span>)", description];
+	self.currentComment.shortDescription = component;
 	return YES;
 }
 
@@ -387,7 +406,7 @@ typedef NSUInteger GBProcessingFlag;
 	if ([components count] == 0) return NO;
 	
 	// Get data from captures. Index 1 is directive, index 2 description text.
-	NSString *description = [components objectAtIndex:3];
+	NSString *description = [components count] > 2 ? [components objectAtIndex:3] : @"";
 	NSRange range = [string rangeOfString:description];
 	NSString *prefix = nil;
 	if (range.location < [string length]) {
@@ -438,7 +457,7 @@ typedef NSUInteger GBProcessingFlag;
 	index = [description rangeOfString:@"@discussion"];
 	
 	if (index.location == NSNotFound) {
-		index = [description rangeOfRegex:@"\\s+"];
+		index = [description rangeOfString:@"\\s+"];
 	}
 	
 	NSRange range;
@@ -528,6 +547,7 @@ typedef NSUInteger GBProcessingFlag;
 	if ([string isMatchedByRegex:self.components.noteSectionRegex]) return YES;
 	if ([string isMatchedByRegex:self.components.warningSectionRegex]) return YES;
 	if ([string isMatchedByRegex:self.components.bugSectionRegex]) return YES;
+	if ([string isMatchedByRegex:self.components.deprecatedSectionRegex]) return YES;
 	if ([string isMatchedByRegex:self.components.parameterDescriptionRegex]) return YES;
 	if ([string isMatchedByRegex:self.components.exceptionDescriptionRegex]) return YES;
 	if ([string isMatchedByRegex:self.components.returnDescriptionRegex]) return YES;

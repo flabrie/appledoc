@@ -212,6 +212,17 @@
 	assertThatBool(settings2.publishDocSet, equalToBool(NO));
 }
 
+- (void)testUseAppleAnchors_shouldAssignValueToSettings {
+	// setup & execute
+	GBApplicationSettingsProvider *settings1 = [self settingsByRunningWithArgs:@"--html-anchors", @"appledoc", nil];
+	GBApplicationSettingsProvider *settings2 = [self settingsByRunningWithArgs:@"--html-anchors", @"apple", nil];
+	GBApplicationSettingsProvider *settings3 = [self settingsByRunningWithArgs:nil];
+	// verify
+	assertThatBool(settings1.htmlAnchorFormat, equalToInt(GBHTMLAnchorFormatAppleDoc));
+	assertThatBool(settings2.htmlAnchorFormat, equalToInt(GBHTMLAnchorFormatApple));
+	assertThatBool(settings3.htmlAnchorFormat, equalToInt(GBHTMLAnchorFormatAppleDoc));
+}
+
 - (void)testKeepIntermediateFiles_shouldAssignValueToSettings {
 	// setup & execute
 	GBApplicationSettingsProvider *settings1 = [self settingsByRunningWithArgs:@"--keep-intermediate-files", nil];
@@ -452,6 +463,14 @@
 	assertThat(settings.docsetFeedURL, is(@"value"));
 }
 
+- (void)testDocSetFeedFormat_shouldAssignValueToSettings {
+    
+    // setup & execute
+    GBApplicationSettingsProvider *settings = [self settingsByRunningWithArgs:@"--docset-feed-formats", @"value", nil];
+    // verify
+    assertThat(settings.docsetFeedFormats, is(@"value"));
+}
+
 - (void)testDocSetPackageURL_shouldAssignValueToSettings {
 	// setup & execute
 	GBApplicationSettingsProvider *settings = [self settingsByRunningWithArgs:@"--docset-package-url", @"value", nil];
@@ -520,6 +539,13 @@
 	GBApplicationSettingsProvider *settings = [self settingsByRunningWithArgs:@"--docset-atom-filename", @"value", nil];
 	// verify
 	assertThat(settings.docsetAtomFilename, is(@"value"));
+}
+
+- (void)testDocSetXMLFilename_shouldAssignValueToSettings {
+	// setup & execute
+	GBApplicationSettingsProvider *settings = [self settingsByRunningWithArgs:@"--docset-xml-filename", @"value", nil];
+	// verify
+	assertThat(settings.docsetXMLFilename, is(@"value"));
 }
 
 - (void)testDocSetPackageFilename_shouldAssignValueToSettings {
