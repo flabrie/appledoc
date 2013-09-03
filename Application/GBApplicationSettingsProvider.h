@@ -24,8 +24,8 @@ NSString *NSStringFromGBHTMLAnchorFormat(GBHTMLAnchorFormat format);
 
 typedef enum
 {
-    GBPublishedFeedFormatAtom = 1,
-    GBPublishedFeedFormatXML = 2
+    GBPublishedFeedFormatAtom = 1 << 1,
+    GBPublishedFeedFormatXML = 1 << 2
 } GBPublishedFeedFormats;
 
 GBPublishedFeedFormats GBPublishedFeedFormatsFromNSString(NSString *formatString);
@@ -379,6 +379,12 @@ NSString *NSStringFromGBPublishedFeedFormats(GBPublishedFeedFormats format);
  @see mergeCategoriesToClasses
  */
 @property (assign) BOOL prefixMergedCategoriesSectionsWithCategoryName;
+
+/** Indicates whether methods and properties keep the order specified in input files.
+
+ If `YES`, all method and properties will appear in the documentation in the same order they appear in the input files. If `NO`, the alphabetical order will be kept.
+ */
+@property (assign) BOOL useCodeOrder;
 
 /** Indicates whteher local methods and properties cross references texts should be prefixed when used in related items list.
  

@@ -50,7 +50,7 @@ NSString *NSStringFromGBHTMLAnchorFormat(GBHTMLAnchorFormat format) {
 GBPublishedFeedFormats GBPublishedFeedFormatsFromNSString(NSString *formatString) {
     // These items are comma delimited
     NSArray *formatItems = [[formatString lowercaseString] componentsSeparatedByString:@","];
-    GBPublishedFeedFormats formats;
+    GBPublishedFeedFormats formats = 0;
     if ([formatItems containsObject:@"xml"]) {
         formats = formats | GBPublishedFeedFormatXML;
     }
@@ -145,6 +145,7 @@ NSString *NSStringFromGBPublishedFeedFormats(GBPublishedFeedFormats formats) {
 		self.mergeCategoryCommentToClass = YES;
 		self.keepMergedCategoriesSections = NO;
 		self.prefixMergedCategoriesSectionsWithCategoryName = NO;
+        self.useCodeOrder = NO;
 		
 		self.prefixLocalMembersInRelatedItemsList = YES;
 		self.embedCrossReferencesWhenProcessingMarkdown = YES;
@@ -233,7 +234,9 @@ NSString *NSStringFromGBPublishedFeedFormats(GBPublishedFeedFormats formats) {
 	const char* input=[markdown cStringUsingEncoding:NSUTF8StringEncoding];
 	
 	if(input) {
-		MMIOT *document = gfm_string((char *)input, (int)strlen(input), 0);
+		// Using gfm_string doesn't properly handle > %class%, so reverting back to original implementation!
+		//MMIOT *document = gfm_string((char *)input, (int)strlen(input), 0);
+		MMIOT *document = mkd_string((char *)input, (int)strlen(input), 0);
 		mkd_compile(document, 0);
 		
 		char *html = NULL;
@@ -514,6 +517,10 @@ NSString *NSStringFromGBPublishedFeedFormats(GBPublishedFeedFormats formats) {
 		basePath = @"Protocols";
 		name = [object nameOfProtocol];
 	}
+    else if ([object isKindOfClass:[GBTypedefEnumData class]]) {
+		basePath = @"Constants";
+		name = [object nameOfEnum];
+	}
 	else if ([object isKindOfClass:[GBDocumentData class]]) {
 		GBDocumentData *document = object;
 		
@@ -671,6 +678,7 @@ NSString *NSStringFromGBPublishedFeedFormats(GBPublishedFeedFormats formats) {
 @synthesize mergeCategoryCommentToClass;
 @synthesize keepMergedCategoriesSections;
 @synthesize prefixMergedCategoriesSectionsWithCategoryName;
+@synthesize useCodeOrder;
 
 @synthesize prefixLocalMembersInRelatedItemsList;
 @synthesize embedCrossReferencesWhenProcessingMarkdown;

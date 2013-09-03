@@ -6,6 +6,7 @@
 			{{>TokenIdentifier}}
 			{{>Abstract}}
 			{{>DeclaredIn}}
+            {{>Availability}}
 			{{>RelatedTokens}}
 			{{#refid}}<NodeRef refid="{{refid}}"/>{{/refid}}
 		</Token>
@@ -14,7 +15,7 @@
 		<Token>
 			{{>TokenIdentifier}}
 			{{>Abstract}}
-			{{>DeclaredIn}}			
+			{{>DeclaredIn}}
 			{{>RelatedTokens}}
 			<Declaration>{{>MethodDeclaration}}</Declaration>
 			{{#hasParameters}}<Parameters>
@@ -27,6 +28,17 @@
 			{{#anchor}}<Anchor>{{anchor}}</Anchor>{{/anchor}}
 		</Token>
 		{{/members}}
+        {{#constants}}
+        <Token>
+            {{>TokenIdentifier}}
+            {{>Abstract}}
+            <Declaration>{{declaration}}</Declaration>
+            {{>Availability}}
+            {{>DeclaredIn}}
+            {{>RelatedTokens}}
+            {{>Reference}}
+        </Token>
+        {{/constants}}
 	</File>
 </Tokens>
 
@@ -49,6 +61,14 @@ EndSection
 
 Section Abstract
 <Abstract type="html">{{#abstract}}{{>GBCommentComponentsList}}{{/abstract}}</Abstract>
+EndSection
+
+Section Availability
+{{#availability}}<Availability type="html">{{>GBCommentComponentsList}}</Availability>{{/availability}}
+EndSection
+
+Section Reference
+{{#refid}}<NodeRef refid="{{refid}}"/>{{/refid}}
 EndSection
 
 Section MethodDeclaration
