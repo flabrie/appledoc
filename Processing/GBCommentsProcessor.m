@@ -15,26 +15,21 @@
 @interface GBCrossRefData : NSObject
 
 @property (assign) NSRange range;
-@property (retain) NSString *address;
-@property (retain) NSString *description;
-@property (retain) NSString *markdown;
+@property (strong) NSString *address;
+@property (strong) NSString *description;
+@property (strong) NSString *markdown;
 
 @property (assign, readonly) BOOL isValid;
 
 @end
 
 @implementation GBCrossRefData
+@synthesize description; // Explicitly required to override -[NSObject description](readonly)
 
 + (instancetype) crossRefData {
     GBCrossRefData *result = [[self alloc] init];
     result.range = NSMakeRange(NSNotFound, 0);
-    return [result autorelease];
-}
-
-- (void) dealloc {
-    [self.address release];
-    [self.description release];
-    [self.markdown release];
+    return result;
 }
 
 - (BOOL) isInsideCrossRef:(GBCrossRefData *) outer {
@@ -51,6 +46,8 @@
         return [self.description isEqualToString:[object nameOfProtocol]];
 	else if ([object isKindOfClass:[GBTypedefEnumData class]])
         return [self.description isEqualToString:[object nameOfEnum]];
+    else if ([object isKindOfClass:[GBTypedefBlockData class]])
+        return [self.description isEqualToString:[object nameOfBlock]];
 	else if ([object isKindOfClass:[GBDocumentData class]])
         return NO;
     else
@@ -105,6 +102,7 @@ typedef NSUInteger GBProcessingFlag;
 - (GBCommentComponent *)commentComponentByPreprocessingString:(NSString *)string withFlags:(GBProcessingFlag)flags;
 - (GBCommentComponent *)commentComponentWithStringValue:(NSString *)string;
 - (NSString *)stringByPreprocessingString:(NSString *)string withFlags:(GBProcessingFlag)flags;
+- (NSString *)stringByPreprocessingNonLinkString:(NSString *)string withFlags:(GBProcessingFlag)flags;
 - (NSString *)stringByConvertingCrossReferencesInString:(NSString *)string withFlags:(GBProcessingFlag)flags;
 - (NSString *)stringByConvertingSimpleCrossReferencesInString:(NSString *)string searchRange:(NSRange)searchRange flags:(GBProcessingFlag)flags;
 - (NSString *)markdownLinkWithDescription:(NSString *)description address:(NSString *)address flags:(GBProcessingFlag)flags;
@@ -121,16 +119,16 @@ typedef NSUInteger GBProcessingFlag;
 - (NSString *)stringByConvertingLinesToBlockquoteFromString:(NSString *)string class:(NSString *)className;
 - (NSString *)stringByCombiningTrimmedLines:(NSArray *)lines;
 
-@property (retain) id currentContext;
-@property (retain) id currentObject;
-@property (retain) GBComment *currentComment;
-@property (retain) GBStore *store;
-@property (retain) GBApplicationSettingsProvider *settings;
+@property (strong) id currentContext;
+@property (strong) id currentObject;
+@property (strong) GBComment *currentComment;
+@property (strong) GBStore *store;
+@property (strong) GBApplicationSettingsProvider *settings;
 @property (readonly) GBCommentComponentsProvider *components;
 
-@property (retain) NSMutableDictionary *reservedShortDescriptionData;
-@property (retain) GBSourceInfo *currentSourceInfo;
-@property (retain) id lastReferencedObject;
+@property (strong) NSMutableDictionary *reservedShortDescriptionData;
+@property (strong) GBSourceInfo *currentSourceInfo;
+@property (strong) id lastReferencedObject;
 
 @end
 
@@ -141,7 +139,7 @@ typedef NSUInteger GBProcessingFlag;
 #pragma mark Initialization & disposal
 
 + (id)processorWithSettingsProvider:(id)settingsProvider {
-	return [[[self alloc] initWithSettingsProvider:settingsProvider] autorelease];
+	return [[self alloc] initWithSettingsProvider:settingsProvider];
 }
 
 - (id)initWithSettingsProvider:(id)settingsProvider {
@@ -605,6 +603,49 @@ typedef NSUInteger GBProcessingFlag;
 	// Converts all appledoc formatting and cross refs to proper Markdown text suitable for passing to Markdown generator.
 	if ([string length] == 0) return string;
 	
+	// Process all links separately, so that they won't be cut off if the contain _'s (which is a formatting marker)
+	NSString *pattern = @"(\\[.+?\\]\\(.+?\\))";
+	NSArray *components = [string arrayOfDictionariesByMatchingRegex:pattern withKeysAndCaptures:@"link", 1, nil];
+	NSRange searchRange = NSMakeRange(0, [string length]);
+	NSMutableString *result = [NSMutableString stringWithCapacity:[string length]];
+	for (NSDictionary *component in components) {
+		NSString *componentLink = [component objectForKey:@"link"];
+		NSRange componentRange = [string rangeOfString:componentLink options:0 range:searchRange];
+
+		if (componentRange.location > searchRange.location) {
+			NSRange skippedRange = NSMakeRange(searchRange.location, componentRange.location - searchRange.location);
+			NSString *skippedText = [string substringWithRange:skippedRange];
+			NSString *preprocessedText = [self stringByPreprocessingNonLinkString:skippedText withFlags:flags];
+			[result appendString:preprocessedText];
+		}
+
+		// Don't process the link using the formatting markers, might contain formatting markers
+		NSString *convertedLink = [self stringByConvertingCrossReferencesInString:componentLink withFlags:flags];
+		[result appendString:convertedLink];
+
+		NSUInteger location = componentRange.location + [componentLink length];
+		searchRange = NSMakeRange(location, [string length] - location);
+	}
+
+	// If there is some remaining text, preprocess it as well.
+	if ([string length] > searchRange.location) {
+		NSString *remainingText = [string substringWithRange:searchRange];
+		NSString *preprocessedText = [self stringByPreprocessingNonLinkString:remainingText withFlags:flags];
+		[result appendString:preprocessedText];
+	}
+
+	// Finally replace all embedded code span Markdown links to proper ones. Embedded links look like: `[`desc`](address)`.
+	NSString *regex = [NSString stringWithFormat:@"`((?:%@)?\\[`[^`]*`\\]\\(.+?\\)(?:%@)?)`", self.components.codeSpanStartMarker, self.components.codeSpanEndMarker];
+	NSString *clean = [result stringByReplacingOccurrencesOfRegex:regex usingBlock:^NSString *(NSInteger captureCount, NSString *const __unsafe_unretained *capturedStrings, const NSRange *capturedRanges, volatile BOOL *const stop) {
+		return capturedStrings[1];
+	}];
+	return clean;
+}
+
+- (NSString *)stringByPreprocessingNonLinkString:(NSString *)string withFlags:(GBProcessingFlag)flags {
+	// Converts all appledoc formatting and cross refs to proper Markdown text suitable for passing to Markdown generator.
+	if ([string length] == 0) return string;
+
 	// Formatting markers are fine, except *, which should be converted to **. To simplify cross refs detection, we handle all possible formatting markers though so we can search for cross refs within "clean" formatted text, without worrying about markers interfering with search. Note that we also handle "standard" Markdown nested formats and bold markers here, so that we properly handle cross references within.
 	NSString *pattern = @"(?s:(\\*__|__\\*|\\*\\*_|_\\*\\*|\\*\\*\\*|___|\\*_|_\\*|\\*\\*|__|\\*|_|==!!==|`)(.+?)\\1)";
 	NSArray *components = [string arrayOfDictionariesByMatchingRegex:pattern withKeysAndCaptures:@"marker", 1, @"value", 2, nil];
@@ -677,12 +718,7 @@ typedef NSUInteger GBProcessingFlag;
 		[result appendString:convertedText];
 	}
 	
-	// Finally replace all embedded code span Markdown links to proper ones. Embedded links look like: `[`desc`](address)`.
-	NSString *regex = [NSString stringWithFormat:@"`((?:%@)?\\[`[^`]*`\\]\\(.+?\\)(?:%@)?)`", self.components.codeSpanStartMarker, self.components.codeSpanEndMarker];
-	NSString *clean = [result stringByReplacingOccurrencesOfRegex:regex usingBlock:^NSString *(NSInteger captureCount, NSString *const *capturedStrings, const NSRange *capturedRanges, volatile BOOL *const stop) {	
-		return capturedStrings[1];
-	}];
-	return clean;
+	return result;
 }
 
 - (NSString *)stringByConvertingCrossReferencesInString:(NSString *)string withFlags:(GBProcessingFlag)flags {
@@ -750,6 +786,7 @@ typedef NSUInteger GBProcessingFlag;
 		GBCrossRefData *localMemberData = [self dataForLocalMemberLinkInString:string searchRange:searchRange flags:flags];
 		GBCrossRefData *remoteMemberData = [self dataForRemoteMemberLinkInString:string searchRange:searchRange flags:flags];
         GBCrossRefData *constantData = [self dataForConstantLinkInString:string searchRange:searchRange flags:flags];
+        GBCrossRefData *blockData = [self dataForBlockLinkInString:string searchRange:searchRange flags:flags];
 		GBCrossRefData *documentData = [self dataForDocumentLinkInString:string searchRange:searchRange flags:flags];
 		
 		// If we find class or protocol link at the same location as category, ignore class/protocol. This prevents marking text up to open parenthesis being converted to a class/protocol where in fact it's category. The same goes for remote member data!
@@ -765,7 +802,8 @@ typedef NSUInteger GBProcessingFlag;
 		if ([objectData matchesObject:self.currentContext]) objectData = nil;
 		if ([categoryData matchesObject:self.currentContext]) categoryData = nil;
 		if ([localMemberData matchesObject:self.currentObject]) localMemberData = nil;
-		if ([constantData matchesObject:self.currentObject]) objectData = nil;
+		if ([constantData matchesObject:self.currentObject]) constantData = nil;
+        if ([blockData matchesObject:self.currentObject]) blockData = nil;
         
 		// Add objects to handler array. Note that we don't add class/protocol if category is found on the same index! If no link was found, proceed with next char. If there's no other word, exit (we'll deal with remaining text later on).
 		if (urlData) [links addObject:urlData];
@@ -774,6 +812,7 @@ typedef NSUInteger GBProcessingFlag;
 		if (localMemberData) [links addObject:localMemberData];
 		if (remoteMemberData) [links addObject:remoteMemberData];
         if (constantData) [links addObject:constantData];
+        if (blockData) [links addObject:blockData];
 		if (documentData) [links addObject:documentData];
 		if ([links count] == 0) {
 			if (isInsideMarkdown) return string;
@@ -943,6 +982,30 @@ typedef NSUInteger GBProcessingFlag;
 	result.description = objectName;
 	result.markdown = [self markdownLinkWithDescription:result.description address:result.address flags:flags];
 	return result;
+}
+
+- (GBCrossRefData *)dataForBlockLinkInString:(NSString *)string searchRange:(NSRange)searchRange flags:(GBProcessingFlag)flags {
+    BOOL templated = (flags & GBProcessingFlagRelatedItem) == 0;
+    NSString *regex = [self.components objectCrossReferenceRegex:templated];
+    NSArray *components = [string captureComponentsMatchedByRegex:regex range:searchRange];
+    if ([components count] == 0) return nil;
+    
+    // Get link components. Index 0 contains full text, including optional template prefix/suffix, index 1 just the object name.
+    NSString *linkText = [components objectAtIndex:0];
+    NSString *objectName = [components objectAtIndex:1];
+    
+    // Validate object name with a class or protocol.
+    id referencedObject = [self.store typedefBlockWithName:objectName];
+    if (!referencedObject) return nil;
+    self.lastReferencedObject = referencedObject;
+    
+    // Create link data and return.
+    GBCrossRefData *result = [GBCrossRefData crossRefData];
+    result.range = [string rangeOfString:linkText options:0 range:searchRange];
+    result.address = [self.settings htmlReferenceForObject:referencedObject fromSource:self.currentContext];
+    result.description = objectName;
+    result.markdown = [self markdownLinkWithDescription:result.description address:result.address flags:flags];
+    return result;
 }
 
 - (GBCrossRefData *)dataForLocalMemberLinkInString:(NSString *)string searchRange:(NSRange)searchRange flags:(GBProcessingFlag)flags {
